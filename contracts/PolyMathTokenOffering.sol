@@ -71,6 +71,9 @@ contract PolyMathTokenOffering is Ownable {
 
   // termination early or otherwise
   event Finalized();
+  
+  // refund of excess ETH if purchase is above the cap
+  event Refund(uint256 _amount);
 
   function PolyMathTokenOffering(address _token, uint256 _startTime, uint256 _endTime, uint256 _rate, uint256 _cap, uint256 _goal, address _wallet) {
     require(_startTime >= getBlockTimestamp());
@@ -137,8 +140,15 @@ contract PolyMathTokenOffering is Ownable {
     require(whitelist[beneficiary]);
     require(beneficiary != 0x0);
     require(validPurchase());
+
     // calculate token amount to be purchased
     uint256 weiAmount = msg.value;
+    uint256 remainingToFund = cap.sub(weiRaised);
+
+    if (weiAmount > remainingToFund) {
+        weiAmount = remainingToFund;
+    }
+    
     uint256 tokens = weiAmount.mul(rate);
     uint256 bonusTokens = calculateBonus(weiAmount);
     tokens = tokens.add(bonusTokens);
@@ -152,6 +162,12 @@ contract PolyMathTokenOffering is Ownable {
     TokenPurchase(msg.sender, beneficiary, weiAmount, tokens);
 
     forwardFunds();
+    
+    uint256 toReturn = msg.value.sub(weiAmount);
+      if (toReturn > 0) {
+        caller.transfer(toReturn);
+        Refund(toReturn);
+    }
   }
 
   // redeem tokens
