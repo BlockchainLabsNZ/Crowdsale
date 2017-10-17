@@ -65,6 +65,9 @@ contract PolyMathTokenOffering is Ownable {
   // termination early or otherwise
   event Finalized();
 
+  // refund of excess ETH if purchase is above the cap
+  event Refund(uint256 _amount);
+
   function PolyMathTokenOffering(address _token, uint256 _startTime, uint256 _endTime, uint256 _rate, uint256 _cap, address _wallet) {
     require(_startTime >= getBlockTimestamp());
     require(_endTime >= _startTime);
@@ -126,22 +129,35 @@ contract PolyMathTokenOffering is Ownable {
     require(whitelist[beneficiary]);
     require(beneficiary != 0x0);
     require(validPurchase());
+    
     // calculate token amount to be purchased
     uint256 weiAmount = msg.value;
     uint256 tokens = weiAmount.mul(rate);
     uint256 bonusTokens = calculateBonus(weiAmount);
+    uint256 remainingToFund = cap.sub(weiRaised);
+    
+    if (weiAmount > remainingToFund) {
+            weiAmount = remainingToFund;
+    }
+        
     tokens = tokens.add(bonusTokens);
-
+    
     // update state
     weiRaised = weiRaised.add(weiAmount);
-
+    
     // allocate tokens to purchaser
     allocations[beneficiary] = tokens;
 
     TokenPurchase(msg.sender, beneficiary, weiAmount, tokens);
 
     forwardFunds();
-  }
+
+    uint256 toReturn = msg.value.sub(weiAmount);
+        if (toReturn > 0) {
+          msg.sender.transfer(toReturn);
+          Refund(toReturn);
+      }
+    }
 
   // redeem tokens
   function claimTokens() {
@@ -183,10 +199,9 @@ contract PolyMathTokenOffering is Ownable {
 
   // @return true if the transaction can buy tokens
   function validPurchase() internal constant returns (bool) {
-    bool withinCap = weiRaised.add(msg.value) <= cap;
     bool withinPeriod = getBlockTimestamp() >= startTime && getBlockTimestamp() <= endTime;
     bool nonZeroPurchase = msg.value != 0;
-    return withinPeriod && nonZeroPurchase && withinCap;
+    return withinPeriod && nonZeroPurchase;
   }
 
   // @return true if crowdsale event has ended or cap reached
